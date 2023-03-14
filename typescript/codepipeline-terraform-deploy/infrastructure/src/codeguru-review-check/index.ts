@@ -5,7 +5,7 @@ import { LambdaInvokeAction } from 'aws-cdk-lib/aws-codepipeline-actions';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Runtime } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
-import { CodePipelineActionFactoryResult, CodePipelineSource, ICodePipelineActionFactory, ProduceActionOptions, Step } from 'aws-cdk-lib/pipelines';
+//import { CodePipelineActionFactoryResult, CodePipelineSource, ICodePipelineActionFactory, ProduceActionOptions, Step } from 'aws-cdk-lib/pipelines';
 
 export enum CodeGuruReviewRecommendationCategory {
   AWS_BEST_PRACTICES = 'AWSBestPractices',
