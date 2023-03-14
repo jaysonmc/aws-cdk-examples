@@ -1,5 +1,4 @@
 import { /*CfnOutput,*/ Environment, Stack, StackProps, Stage, Tags } from 'aws-cdk-lib';
-import { BuildSpec } from 'aws-cdk-lib/aws-codebuild';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
 import * as codepipeline_actions from "aws-cdk-lib/aws-codepipeline-actions";
@@ -9,19 +8,21 @@ import { Account, Accounts } from './accounts';
 import { CodeGuruReviewCheck, CodeGuruReviewFilter } from './codeguru-review-check';
 import { CodeBuildStep, CodePipeline, CodePipelineSource, StageDeployment, Wave } from 'aws-cdk-lib/pipelines';
 import * as sm from "aws-cdk-lib/aws-secretsmanager";
-// import { JMeterTest } from './jmeter-test';
+import { JMeterTest } from './jmeter-test';
+
+import * as yaml from 'yaml';
 
 import { MavenBuild } from './maven-build';
 import { SoapUITest } from './soapui-test';
-import { TrivyScan } from './trivy-scan';
 
+import * as codecommit from  'aws-cdk-lib/aws-codecommit';
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
+import * as s3 from "aws-cdk-lib/aws-s3";
+
+import * as codegurureviewer from 'aws-cdk-lib/aws-codegurureviewer';
 
 import {
-  Effect, 
-  ManagedPolicy, 
-  PolicyStatement, 
-  PolicyDocument, 
+  ManagedPolicy,
   Role, 
   ServicePrincipal,
   CompositePrincipal
@@ -42,8 +43,6 @@ export class PipelineStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
 
-    const githubToken = process.env.github_access_token ? process.env.github_access_token : ""
-
     const infraSourceOutput = new codepipeline.Artifact("InfraSrcOutput");
     const infraRepo = 'terraform-aws-opencbdc-tctl'
     const infraRepoOwner = process.env.repo_owner ? process.env.repo_owner : ""
@@ -53,11 +52,6 @@ export class PipelineStack extends Stack {
     const codeRepoOwner = 'mit-dci'
 
     const adminRole : Role = createAdminRole(this)
-    
-    const secret = sm.Secret.fromSecretAttributes(this, "ImportedSecret", {
-      secretCompleteArn:
-        `arn:aws:secretsmanager:${process.env?.region}:${this.account}:secret:${githubToken}-${process.env.github_access_token_suffix}`
-    });
 
     const infraSource = new codepipeline_actions.CodeStarConnectionsSourceAction({
       actionName: "GetGitHubTerraformSource",
@@ -77,14 +71,33 @@ export class PipelineStack extends Stack {
       connectionArn: `arn:aws:codestar-connections:${process.env.region}:${this.account}:connection/${process.env.codestar_connectionid}`
     })
 
-    const appName = this.node.tryGetContext('appName');
+    const infraRepository = new codecommit.Repository(this, 'cdk-terraform-infraRepository', {
+      repositoryName: 'MyRepository',
+    });
+    
+    const codeRepository = new codecommit.Repository(this, 'cdk-terraform-sourceRepository', {
+      repositoryName: 'MyRepository',
+    });
     // const source = new CodeCommitSource(this, 'Source', { repositoryName: appName });
 
+    /*
     const cacheBucket = new Bucket(this, 'CacheBucket', {
       encryption: BucketEncryption.S3_MANAGED,
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
     });
+    */
+    
+    const fromYaml = yaml.parse(`
+      version: '0.2'
+      phases:
+        build:
+          commands:
+            - git clone https://github.com/${codeRepoOwner}/${codeSourceRepo}
+            - git remote rename origin upstream
+            - git remote add origin URL TO CODE COMMIT
+            - git push origin master
+    `);
     
     const terraformPlan = new codebuild.PipelineProject(
       this,
@@ -207,6 +220,18 @@ export class PipelineStack extends Stack {
       }
     )
     
+    const s3CodeBucket = new s3.Bucket(this, `s3CDKCodeBucketOpenCBDCDemo-${this.account}`, {
+      encryption: BucketEncryption.S3_MANAGED,
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+    })
+    
+    const s3InfraBucket = new s3.Bucket(this, `s3CDKInfraBucketOpenCBDCDemo-${this.account}`, {
+      encryption: BucketEncryption.S3_MANAGED,
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+    })
+    
     const pipeline = new codepipeline.Pipeline(this, "cdk-cbdcdeploy", {
       pipelineName: "cdk-cbdcdeploy",
       crossAccountKeys: true,
@@ -231,6 +256,38 @@ export class PipelineStack extends Stack {
           branch: process.env.branch,
           repo: codeSourceRepo,
           connectionArn: `arn:aws:codestar-connections:${process.env.region}:${this.account}:connection/${process.env.codestar_connectionid}`
+        })
+      ]
+    })
+    
+    // Move code from GitHub to s3
+    pipeline.addStage({
+      stageName: "CodeToS3",
+      actions: [
+        new codepipeline_actions.S3DeployAction({
+          actionName: 'InfraS3Deploy',
+          bucket: s3InfraBucket,
+          input: infraSourceOutput,
+        }),
+        new codepipeline_actions.S3DeployAction({
+          actionName: 'CodeS3Deploy',
+          bucket: s3CodeBucket,
+          input: codeSourceOutput,
+        })
+      ]
+    })
+    
+    // Move code from s3 to CodeCommit to leverage pipelines library
+    
+    pipeline.addStage({
+      stageName: "Code Quality Checks",
+      actions: [
+        new codegurureviewer.CfnRepositoryAssociation(this, 'MyCfnRepositoryAssociation', {
+          name: infraRepo,
+          type: 'S3Bucket',
+          // the properties below are optional
+          bucketName: s3InfraBucket.bucketName,
+                  
         })
       ]
     })
@@ -260,35 +317,9 @@ export class PipelineStack extends Stack {
     */
 
     
-    buildAction.addStepDependency(codeGuruQuality);
-    buildAction.addStepDependency(codeGuruSecurity);
-    buildAction.addStepDependency(trivyScan);
-
-    const synthAction = new CodeBuildStep('Synth', {
-      input: buildAction,
-      partialBuildSpec: BuildSpec.fromObject({
-        phases: {
-          install: {
-            'runtime-versions': {
-              nodejs: 14,
-            },
-          },
-          build: {
-            commands: ['yarn install --frozen-lockfile', 'npm run build', 'npx cdk synth'],
-          },
-        },
-        version: '0.2',
-      }),
-      commands: [],
-    });
-
-    const pipeline = new CodePipeline(this, appName, {
-      pipelineName: appName,
-      synth: synthAction,
-      dockerEnabledForSynth: true,
-      crossAccountKeys: true,
-      publishAssetsInParallel: false,
-    });
+    //buildAction.addStepDependency(codeGuruQuality);
+    //buildAction.addStepDependency(codeGuruSecurity);
+    //buildAction.addStepDependency(trivyScan);
 
     new PipelineEnvironment(pipeline, Beta, (deployment, stage) => {
       stage.addPost(
