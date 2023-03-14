@@ -95,7 +95,7 @@ export class PipelineStack extends Stack {
           commands:
             - git clone https://github.com/${codeRepoOwner}/${codeSourceRepo}
             - git remote rename origin upstream
-            - git remote add origin URL TO CODE COMMIT
+            - git remote add origin ${codeRepository.repositoryCloneUrlHttp}
             - git push origin master
     `);
     
