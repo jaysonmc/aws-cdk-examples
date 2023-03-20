@@ -25,8 +25,6 @@ export class CodeCommitSource extends Construct {
       ignoreMode: IgnoreMode.GIT
     });
     
-    
-    
     this.repository = new Repository(this, props.s3Source.bucketName, {
       repositoryName: props.s3Source.bucketName,
       code: Code.fromAsset(codeAsset, props.trunkBranchName),

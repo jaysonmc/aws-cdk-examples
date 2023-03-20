@@ -1,23 +1,17 @@
-import { /*CfnOutput,*/ Environment, Stack, StackProps, Stage, Tags } from 'aws-cdk-lib';
+import { Environment, Stack, StackProps, Stage, Tags } from 'aws-cdk-lib';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
+import { BuildSpec } from 'aws-cdk-lib/aws-codebuild';
 import { Construct } from 'constructs';
 import * as codepipeline_actions from "aws-cdk-lib/aws-codepipeline-actions";
 import * as codepipeline from "aws-cdk-lib/aws-codepipeline";
-
 import { Account, Accounts } from './accounts';
 import { CodeGuruReviewCheck, CodeGuruReviewFilter } from './codeguru-review-check';
-import { CodeBuildStep, CodePipeline, CodePipelineSource, StageDeployment, Wave } from 'aws-cdk-lib/pipelines';
-
-import { JMeterTest } from './jmeter-test';
-
+import { CodeBuildStep, CodePipeline, StageDeployment, Wave } from 'aws-cdk-lib/pipelines';
 import { CodeCommitSource } from './codecommit-source';
-
 import { SoapUITest } from './soapui-test';
-
 import * as codestar from 'aws-cdk-lib/aws-codestar';
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
-
-import * as codegurureviewer from 'aws-cdk-lib/aws-codegurureviewer';
+import { TrivyScan } from './trivy-scan';
 
 import {
   ManagedPolicy,
@@ -88,17 +82,9 @@ export class PipelineStack extends Stack {
       }
     })
 
-    const codeCommitSourceRepo = new CodeCommitSource(this, 'Source', { s3Source: s3CodeBucket, trunkBranchName: 'trunk' });
-    const codeCommitInfraRepo = new CodeCommitSource(this, 'Source', { s3Source: s3InfraBucket, trunkBranchName: 'trunk' });
+    const codeCommitSourceRepo = new CodeCommitSource(this, 'CodeSource', { s3Source: s3CodeBucket, trunkBranchName: 'trunk' });
+    const codeCommitInfraRepo = new CodeCommitSource(this, 'InfraSource', { s3Source: s3InfraBucket, trunkBranchName: 'trunk' });
 
-    /*
-    const cacheBucket = new Bucket(this, 'CacheBucket', {
-      encryption: BucketEncryption.S3_MANAGED,
-      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
-      enforceSSL: true,
-    });
-    */
-  
     const terraformPlan = new codebuild.PipelineProject(
       this,
       "TerraformPlan",
@@ -219,15 +205,69 @@ export class PipelineStack extends Stack {
         }
       }
     )
-    
-    /*
-    const pipeline = new codepipeline.Pipeline(this, "cdk-cbdcdeploy", {
-      pipelineName: "cdk-cbdcdeploy",
-      crossAccountKeys: true,
-      role: adminRole,
-    });
-    */
 
+    const cacheBucket = new Bucket(this, 'CacheBucket', {
+      encryption: BucketEncryption.S3_MANAGED,
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+    });
+
+    const codeGuruCodeSecurity = new CodeGuruReviewCheck('CodeGuruSecurity', {
+      source: s3CodeBucket,
+      reviewRequired: false,
+      filter: CodeGuruReviewFilter.defaultCodeSecurityFilter(),
+    });
+    const codeGuruInfraSecurity = new CodeGuruReviewCheck('CodeGuruSecurity', {
+      source: s3InfraBucket,
+      reviewRequired: false,
+      filter: CodeGuruReviewFilter.defaultCodeSecurityFilter(),
+    });
+    
+    const codeGuruCodeQuality = new CodeGuruReviewCheck('CodeGuruQuality', {
+      source: s3CodeBucket,
+      reviewRequired: false,
+      filter: CodeGuruReviewFilter.defaultCodeQualityFilter(),
+    });
+    const codeGuruInfraQuality = new CodeGuruReviewCheck('CodeGuruQuality', {
+      source: s3InfraBucket,
+      reviewRequired: false,
+      filter: CodeGuruReviewFilter.defaultCodeQualityFilter(),
+    });
+    
+    const trivyCodeScan = new TrivyScan('TrivyScan', {
+      source: codeCommitSourceRepo.codePipelineSource,
+      severity: ['CRITICAL', 'HIGH'],
+      checks: ['vuln', 'config', 'secret'],
+    });
+
+    const buildAction = new MavenBuild('Build', {1
+      source: source.codePipelineSource,
+      cacheBucket,
+    });
+
+    buildAction.addStepDependency(codeGuruCodeSecurity);
+    buildAction.addStepDependency(codeGuruInfraSecurity);
+    buildAction.addStepDependency(codeGuruCodeQuality);
+    buildAction.addStepDependency(codeGuruInfraQuality);
+    buildAction.addStepDependency(trivyCodeScan);
+
+    const synthAction = new CodeBuildStep('Synth', {
+      input: buildAction,
+      partialBuildSpec: BuildSpec.fromObject({
+        phases: {
+          install: {
+            'runtime-versions': {
+              nodejs: 14,
+            },
+          },
+          build: {
+            commands: ['yarn install --frozen-lockfile', 'npm run build', 'npx cdk synth'],
+          },
+        },
+        version: '0.2',
+      }),
+      commands: [],
+    });
     
     const pipeline = new CodePipeline(this, "cdk-cbdcdeploy", {
       pipelineName: "cdk-cbdcdeploy",
@@ -278,35 +318,6 @@ export class PipelineStack extends Stack {
         }),
       ]
     })
-
-    /*
-    const codeGuruSecurity = new CodeGuruReviewCheck('CodeGuruSecurity', {
-      source: codeSource,
-      reviewRequired: false,
-      filter: CodeGuruReviewFilter.defaultCodeSecurityFilter(),
-    });
-    */
-    
-    /*
-    const codeGuruQuality = new CodeGuruReviewCheck('CodeGuruQuality', {
-      source: source.codePipelineSource,
-      reviewRequired: false,
-      filter: CodeGuruReviewFilter.defaultCodeQualityFilter(),
-    });
-    */
-    
-    /*
-    const trivyScan = new TrivyScan('TrivyScan', {
-      source: source.codePipelineSource,
-      severity: ['CRITICAL', 'HIGH'],
-      checks: ['vuln', 'config', 'secret'],
-    });
-    */
-
-    
-    //buildAction.addStepDependency(codeGuruQuality);
-    //buildAction.addStepDependency(codeGuruSecurity);
-    //buildAction.addStepDependency(trivyScan);
 
     new PipelineEnvironment(pipeline, Beta, (deployment, stage) => {
       stage.addPost(
