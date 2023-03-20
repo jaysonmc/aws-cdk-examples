@@ -6,7 +6,7 @@ import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import { loadSharedConfigFiles } from '@aws-sdk/shared-ini-file-loader';
 import { prompts } from 'prompts';
 import { Account } from './accounts';
-import { accounts, Beta, Gamma, Prod } from './pipeline';
+import { accounts, Beta } from './pipeline';
 
 
 async function main() {
@@ -16,8 +16,6 @@ async function main() {
     accounts[accountName] = await promptAccount(`Select AWS profile for '${accountName}' account`, account?.profile);
   }
   Beta.account = accounts.beta;
-  Gamma.account = accounts.gamma;
-  Prod.account = accounts.production;
   accounts.store();
 
   const commands: string[] = [];
@@ -27,7 +25,7 @@ async function main() {
   const toolchainAccountId = accounts.toolchain!.accountId;
   commands.push(`npx cdk bootstrap --profile ${accounts.toolchain!.profile} --cloudformation-execution-policies USES_DpraCfnExecutionPolicy_IN_TEMPLATE --template ./infrastructure/src/dpra_bootstrap_template.yaml aws://${toolchainAccountId}/${toolchainRegion}`);
 
-  for (let account of [Beta, Gamma, Prod]) {
+  for (let account of [Beta]) {
     const accountRegions = account.waves.flatMap(w => w.map(r => `aws://${account.account?.accountId}/${r}`)).join(' ');
     commands.push(`npx cdk bootstrap --profile ${account.account!.profile} --trust ${toolchainAccountId} --cloudformation-execution-policies USES_DpraCfnExecutionPolicy_IN_TEMPLATE --template ./infrastructure/src/dpra_bootstrap_template.yaml ${accountRegions}`);
   }

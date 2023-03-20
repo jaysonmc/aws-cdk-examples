@@ -7,17 +7,15 @@ import * as codepipeline from "aws-cdk-lib/aws-codepipeline";
 import { Account, Accounts } from './accounts';
 import { CodeGuruReviewCheck, CodeGuruReviewFilter } from './codeguru-review-check';
 import { CodeBuildStep, CodePipeline, CodePipelineSource, StageDeployment, Wave } from 'aws-cdk-lib/pipelines';
-import * as sm from "aws-cdk-lib/aws-secretsmanager";
+
 import { JMeterTest } from './jmeter-test';
 
-import * as yaml from 'yaml';
+import { CodeCommitSource } from './codecommit-source';
 
-import { MavenBuild } from './maven-build';
 import { SoapUITest } from './soapui-test';
 
-import * as codecommit from  'aws-cdk-lib/aws-codecommit';
+import * as codestar from 'aws-cdk-lib/aws-codestar';
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
-import * as s3 from "aws-cdk-lib/aws-s3";
 
 import * as codegurureviewer from 'aws-cdk-lib/aws-codegurureviewer';
 
@@ -51,34 +49,47 @@ export class PipelineStack extends Stack {
     const codeSourceRepo = 'opencbdc-tctl'
     const codeRepoOwner = 'mit-dci'
 
+    const sourceBucketName = `s3CDKCodeBucketOpenCBDCDemo-${this.account}`
+    const infraBucketName = `s3CDKInfraBucketOpenCBDCDemo-${this.account}`
+
     const adminRole : Role = createAdminRole(this)
 
-    const infraSource = new codepipeline_actions.CodeStarConnectionsSourceAction({
-      actionName: "GetGitHubTerraformSource",
-      output: infraSourceOutput,
-      owner: infraRepoOwner,
-      branch: process.env.branch,
-      repo: infraRepo,
-      connectionArn: `arn:aws:codestar-connections:${process.env.region}:${this.account}:connection/${process.env.codestar_connectionid}`
+    const s3CodeBucket = new Bucket(this, sourceBucketName, {
+      encryption: BucketEncryption.S3_MANAGED,
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
     })
     
-    const codeSource  = new codepipeline_actions.CodeStarConnectionsSourceAction({
-      actionName: "GetGitHubCodeSource",
-      output: codeSourceOutput,
-      owner: codeRepoOwner,
-      branch: process.env.branch,
-      repo: codeSourceRepo,
-      connectionArn: `arn:aws:codestar-connections:${process.env.region}:${this.account}:connection/${process.env.codestar_connectionid}`
+    const s3InfraBucket = new Bucket(this, infraBucketName, {
+      encryption: BucketEncryption.S3_MANAGED,
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+    })
+    
+    new codestar.CfnGitHubRepository(this, 'infraSource', {
+      repositoryName: codeSourceRepo,
+      repositoryOwner: codeRepoOwner,
+      code: {
+        s3: {
+          bucket: infraBucketName,
+          key: '/code',
+        },
+      }
+    })
+    
+    new codestar.CfnGitHubRepository(this, 'infraSource', {
+      repositoryName: infraRepo,
+      repositoryOwner: infraRepoOwner,
+      code: {
+        s3: {
+          bucket: sourceBucketName,
+          key: '/code',
+        },
+      }
     })
 
-    const infraRepository = new codecommit.Repository(this, 'cdk-terraform-infraRepository', {
-      repositoryName: 'MyRepository',
-    });
-    
-    const codeRepository = new codecommit.Repository(this, 'cdk-terraform-sourceRepository', {
-      repositoryName: 'MyRepository',
-    });
-    // const source = new CodeCommitSource(this, 'Source', { repositoryName: appName });
+    const codeCommitSourceRepo = new CodeCommitSource(this, 'Source', { s3Source: s3CodeBucket, trunkBranchName: 'trunk' });
+    const codeCommitInfraRepo = new CodeCommitSource(this, 'Source', { s3Source: s3InfraBucket, trunkBranchName: 'trunk' });
 
     /*
     const cacheBucket = new Bucket(this, 'CacheBucket', {
@@ -87,18 +98,7 @@ export class PipelineStack extends Stack {
       enforceSSL: true,
     });
     */
-    
-    const fromYaml = yaml.parse(`
-      version: '0.2'
-      phases:
-        build:
-          commands:
-            - git clone https://github.com/${codeRepoOwner}/${codeSourceRepo}
-            - git remote rename origin upstream
-            - git remote add origin ${codeRepository.repositoryCloneUrlHttp}
-            - git push origin master
-    `);
-    
+  
     const terraformPlan = new codebuild.PipelineProject(
       this,
       "TerraformPlan",
@@ -220,24 +220,24 @@ export class PipelineStack extends Stack {
       }
     )
     
-    const s3CodeBucket = new s3.Bucket(this, `s3CDKCodeBucketOpenCBDCDemo-${this.account}`, {
-      encryption: BucketEncryption.S3_MANAGED,
-      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
-      enforceSSL: true,
-    })
-    
-    const s3InfraBucket = new s3.Bucket(this, `s3CDKInfraBucketOpenCBDCDemo-${this.account}`, {
-      encryption: BucketEncryption.S3_MANAGED,
-      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
-      enforceSSL: true,
-    })
-    
+    /*
     const pipeline = new codepipeline.Pipeline(this, "cdk-cbdcdeploy", {
       pipelineName: "cdk-cbdcdeploy",
       crossAccountKeys: true,
       role: adminRole,
     });
+    */
 
+    
+    const pipeline = new CodePipeline(this, "cdk-cbdcdeploy", {
+      pipelineName: "cdk-cbdcdeploy",
+      synth: synthAction,
+      dockerEnabledForSynth: true,
+      crossAccountKeys: true,
+      publishAssetsInParallel: false,
+    });
+
+    /*
     pipeline.addStage({
       stageName: "getSources",
       actions: [
@@ -259,36 +259,23 @@ export class PipelineStack extends Stack {
         })
       ]
     })
+    */
     
-    // Move code from GitHub to s3
     pipeline.addStage({
-      stageName: "CodeToS3",
+      stageName: "getSources",
       actions: [
-        new codepipeline_actions.S3DeployAction({
-          actionName: 'InfraS3Deploy',
-          bucket: s3InfraBucket,
-          input: infraSourceOutput,
+        new codepipeline_actions.CodeCommitSourceAction({
+          actionName: 'Source',
+          repository: codeCommitSourceRepo.repository,
+          output: codeSourceOutput,
+          trigger: codepipeline_actions.CodeCommitTrigger.POLL,
         }),
-        new codepipeline_actions.S3DeployAction({
-          actionName: 'CodeS3Deploy',
-          bucket: s3CodeBucket,
-          input: codeSourceOutput,
-        })
-      ]
-    })
-    
-    // Move code from s3 to CodeCommit to leverage pipelines library
-    
-    pipeline.addStage({
-      stageName: "Code Quality Checks",
-      actions: [
-        new codegurureviewer.CfnRepositoryAssociation(this, 'MyCfnRepositoryAssociation', {
-          name: infraRepo,
-          type: 'S3Bucket',
-          // the properties below are optional
-          bucketName: s3InfraBucket.bucketName,
-                  
-        })
+        new codepipeline_actions.CodeCommitSourceAction({
+          actionName: 'Source',
+          repository: codeCommitInfraRepo.repository,
+          output: infraSourceOutput,
+          trigger: codepipeline_actions.CodeCommitTrigger.POLL,
+        }),
       ]
     })
 
