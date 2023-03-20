@@ -12,6 +12,7 @@ import { SoapUITest } from './soapui-test';
 import * as codestar from 'aws-cdk-lib/aws-codestar';
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
 import { TrivyScan } from './trivy-scan';
+import { MavenBuild } from './maven-build';
 
 import {
   ManagedPolicy,
@@ -212,36 +213,36 @@ export class PipelineStack extends Stack {
       enforceSSL: true,
     });
 
-    const codeGuruCodeSecurity = new CodeGuruReviewCheck('CodeGuruSecurity', {
-      source: s3CodeBucket,
+    const codeGuruCodeSecurity = new CodeGuruReviewCheck('CodeGuruCodeSecurity', {
+      source: codeCommitSourceRepo.codePipelineSource,
       reviewRequired: false,
       filter: CodeGuruReviewFilter.defaultCodeSecurityFilter(),
     });
-    const codeGuruInfraSecurity = new CodeGuruReviewCheck('CodeGuruSecurity', {
-      source: s3InfraBucket,
+    const codeGuruInfraSecurity = new CodeGuruReviewCheck('CodeGuruInfraSecurity', {
+      source: codeCommitInfraRepo.codePipelineSource,
       reviewRequired: false,
       filter: CodeGuruReviewFilter.defaultCodeSecurityFilter(),
     });
     
-    const codeGuruCodeQuality = new CodeGuruReviewCheck('CodeGuruQuality', {
-      source: s3CodeBucket,
+    const codeGuruCodeQuality = new CodeGuruReviewCheck('CodeGuruCodeQuality', {
+      source: codeCommitSourceRepo.codePipelineSource,
       reviewRequired: false,
       filter: CodeGuruReviewFilter.defaultCodeQualityFilter(),
     });
-    const codeGuruInfraQuality = new CodeGuruReviewCheck('CodeGuruQuality', {
-      source: s3InfraBucket,
+    const codeGuruInfraQuality = new CodeGuruReviewCheck('CodeGuruInfraQuality', {
+      source: codeCommitInfraRepo.codePipelineSource,
       reviewRequired: false,
       filter: CodeGuruReviewFilter.defaultCodeQualityFilter(),
     });
     
-    const trivyCodeScan = new TrivyScan('TrivyScan', {
+    const trivyCodeScan = new TrivyScan('TrivyCodeScan', {
       source: codeCommitSourceRepo.codePipelineSource,
       severity: ['CRITICAL', 'HIGH'],
       checks: ['vuln', 'config', 'secret'],
     });
 
-    const buildAction = new MavenBuild('Build', {1
-      source: source.codePipelineSource,
+    const buildAction = new MavenBuild('Build', {
+      source: codeCommitSourceRepo.codePipelineSource,
       cacheBucket,
     });
 
