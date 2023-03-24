@@ -1,7 +1,5 @@
-import { IgnoreMode } from 'aws-cdk-lib';
-import { Code, Repository } from 'aws-cdk-lib/aws-codecommit';
+import { Repository, CfnRepository } from 'aws-cdk-lib/aws-codecommit';
 import { CfnRepositoryAssociation } from 'aws-cdk-lib/aws-codegurureviewer';
-import { Asset } from 'aws-cdk-lib/aws-s3-assets';
 import { CodePipelineSource } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
@@ -12,7 +10,7 @@ export interface CodeCommitSourceProps {
   name: string;
   codeSourceRepo: string;
   codeRepoOwner: string;
-  trunkBranchName: string;
+  branchName: string;
   associateCodeGuru?: boolean;
 }
 
@@ -29,7 +27,7 @@ export class CodeCommitSource extends Construct {
       enforceSSL: true,
     })
     
-    new codestar.CfnGitHubRepository(this, 'codeSource', {
+    new codestar.CfnGitHubRepository(this, props.name, {
       repositoryName: props.codeSourceRepo,
       repositoryOwner: props.codeRepoOwner,
       code: {
@@ -40,14 +38,19 @@ export class CodeCommitSource extends Construct {
       }
     })
     
-    const codeAsset = new Asset(this, 'SourceAsset', {
-      path: codeBucket.s3UrlForObject.toString(),
-      ignoreMode: IgnoreMode.GIT
-    });
-  
     this.repository = new Repository(this, props.name, {
       repositoryName: props.name,
-      code: Code.fromAsset(codeAsset, props.trunkBranchName),
+    });
+    
+    const cfnRepo : CfnRepository = this.repository.node.defaultChild as CfnRepository;
+    this.repository.node.defaultChild
+    
+    cfnRepo.addPropertyOverride('Code', {
+      S3: {
+        Bucket: codeBucket.s3UrlForObject.toString(),
+        Key: '/',
+      },
+      BranchName: props.branchName,
     });
 
     if (props.associateCodeGuru !== false) {
@@ -56,7 +59,7 @@ export class CodeCommitSource extends Construct {
         type: 'CodeCommit',
       });
     }
-    this.codePipelineSource = CodePipelineSource.codeCommit(this.repository, props.trunkBranchName);
+    this.codePipelineSource = CodePipelineSource.codeCommit(this.repository, props.branchName);
   }
 }
 

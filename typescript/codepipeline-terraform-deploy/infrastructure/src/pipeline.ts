@@ -72,8 +72,8 @@ export class PipelineStack extends Stack {
       }
     })
 
-    const codeCommitSourceRepo = new CodeCommitSource(this, 'CodeSource', { name: 'opencbdc-test-code', codeRepoOwner: codeRepoOwner, codeSourceRepo: codeSourceRepo, trunkBranchName: 'trunk' });
-    const codeCommitInfraRepo = new CodeCommitSource(this, 'CodeSource', { name: 'opencbdc-test-code', codeRepoOwner: infraRepoOwner, codeSourceRepo: infraRepo, trunkBranchName: 'trunk' });
+    const codeCommitSourceRepo = new CodeCommitSource(this, 'CodeSource', { name: `opencbdc-test-code-${this.account}`, codeRepoOwner: codeRepoOwner, codeSourceRepo: codeSourceRepo, branchName: 'trunk' });
+    const codeCommitInfraRepo = new CodeCommitSource(this, 'CodeSource', { name: `opencbdc-test-infra-${this.account}`, codeRepoOwner: infraRepoOwner, codeSourceRepo: infraRepo, branchName: 'trunk' });
     
     const terraformPlan = new codebuild.PipelineProject(
       this,
