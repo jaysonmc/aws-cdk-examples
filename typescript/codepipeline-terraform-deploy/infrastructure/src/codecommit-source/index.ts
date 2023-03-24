@@ -6,7 +6,6 @@ import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3'
 import * as codestar from 'aws-cdk-lib/aws-codestar';
 
 export interface CodeCommitSourceProps {
-  //s3Source: Bucket;
   name: string;
   codeSourceRepo: string;
   codeRepoOwner: string;
@@ -21,13 +20,13 @@ export class CodeCommitSource extends Construct {
   constructor(scope: Construct, id: string, props: CodeCommitSourceProps) {
     super(scope, id);
 
-    const codeBucket = new Bucket(this, props.name, {
+    const codeBucket = new Bucket(this, `${props.name}-bucket`, {
       encryption: BucketEncryption.S3_MANAGED,
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
     })
     
-    new codestar.CfnGitHubRepository(this, props.name, {
+    new codestar.CfnGitHubRepository(this, `${props.name}-source`, {
       repositoryName: props.codeSourceRepo,
       repositoryOwner: props.codeRepoOwner,
       code: {
@@ -38,7 +37,7 @@ export class CodeCommitSource extends Construct {
       }
     })
     
-    this.repository = new Repository(this, props.name, {
+    this.repository = new Repository(this, `${props.name}-repo`, {
       repositoryName: props.name,
     });
     

@@ -65,7 +65,6 @@ export class PipelineStack extends Stack {
       repositoryOwner: infraRepoOwner,
       code: {
         s3: {
-          //bucket: sourceBucketName,
           bucket: infraSourceOutput.bucketName,
           key: '/',
         },
@@ -73,7 +72,7 @@ export class PipelineStack extends Stack {
     })
 
     const codeCommitSourceRepo = new CodeCommitSource(this, 'CodeSource', { name: `opencbdc-test-code-${this.account}`, codeRepoOwner: codeRepoOwner, codeSourceRepo: codeSourceRepo, branchName: 'trunk' });
-    const codeCommitInfraRepo = new CodeCommitSource(this, 'CodeSource', { name: `opencbdc-test-infra-${this.account}`, codeRepoOwner: infraRepoOwner, codeSourceRepo: infraRepo, branchName: 'trunk' });
+    const codeCommitInfraRepo = new CodeCommitSource(this, 'InfraSource', { name: `opencbdc-test-infra-${this.account}`, codeRepoOwner: infraRepoOwner, codeSourceRepo: infraRepo, branchName: 'trunk' });
     
     const terraformPlan = new codebuild.PipelineProject(
       this,
