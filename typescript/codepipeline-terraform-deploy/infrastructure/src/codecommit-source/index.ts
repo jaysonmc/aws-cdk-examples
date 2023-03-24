@@ -4,10 +4,14 @@ import { CfnRepositoryAssociation } from 'aws-cdk-lib/aws-codegurureviewer';
 import { Asset } from 'aws-cdk-lib/aws-s3-assets';
 import { CodePipelineSource } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
-import { Bucket } from "aws-cdk-lib/aws-s3";
+import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
+import * as codestar from 'aws-cdk-lib/aws-codestar';
 
 export interface CodeCommitSourceProps {
-  s3Source: Bucket;
+  //s3Source: Bucket;
+  name: string;
+  codeSourceRepo: string;
+  codeRepoOwner: string;
   trunkBranchName: string;
   associateCodeGuru?: boolean;
 }
@@ -19,14 +23,30 @@ export class CodeCommitSource extends Construct {
   constructor(scope: Construct, id: string, props: CodeCommitSourceProps) {
     super(scope, id);
 
+    const codeBucket = new Bucket(this, props.name, {
+      encryption: BucketEncryption.S3_MANAGED,
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+    })
+    
+    new codestar.CfnGitHubRepository(this, 'codeSource', {
+      repositoryName: props.codeSourceRepo,
+      repositoryOwner: props.codeRepoOwner,
+      code: {
+        s3: {
+          bucket: props.name,
+          key: '/',
+        },
+      }
+    })
+    
     const codeAsset = new Asset(this, 'SourceAsset', {
-      //path: '.',
-      path: props.s3Source.s3UrlForObject.toString(),
+      path: codeBucket.s3UrlForObject.toString(),
       ignoreMode: IgnoreMode.GIT
     });
-    
-    this.repository = new Repository(this, props.s3Source.bucketName, {
-      repositoryName: props.s3Source.bucketName,
+  
+    this.repository = new Repository(this, props.name, {
+      repositoryName: props.name,
       code: Code.fromAsset(codeAsset, props.trunkBranchName),
     });
 

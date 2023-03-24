@@ -47,22 +47,7 @@ export class PipelineStack extends Stack {
     const codeSourceRepo = 'opencbdc-tctl'
     const codeRepoOwner = 'mit-dci'
 
-    //const sourceBucketName = `s3CDKCodeBucketOpenCBDCDemo-${this.account}`
-    //const infraBucketName = `s3CDKInfraBucketOpenCBDCDemo-${this.account}`
-
     const adminRole : Role = createAdminRole(this)
-
-    const s3CodeBucket = new Bucket(this, codeSourceOutput.bucketName, {
-      encryption: BucketEncryption.S3_MANAGED,
-      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
-      enforceSSL: true,
-    })
-    
-    const s3InfraBucket = new Bucket(this, infraSourceOutput.bucketName, {
-      encryption: BucketEncryption.S3_MANAGED,
-      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
-      enforceSSL: true,
-    })
     
     new codestar.CfnGitHubRepository(this, 'codeSource', {
       repositoryName: codeSourceRepo,
@@ -81,14 +66,14 @@ export class PipelineStack extends Stack {
       code: {
         s3: {
           //bucket: sourceBucketName,
-          bucket: codeSourceOutput.bucketName,
+          bucket: infraSourceOutput.bucketName,
           key: '/',
         },
       }
     })
 
-    const codeCommitSourceRepo = new CodeCommitSource(this, 'CodeSource', { s3Source: s3CodeBucket, trunkBranchName: 'trunk' });
-    const codeCommitInfraRepo = new CodeCommitSource(this, 'InfraSource', { s3Source: s3InfraBucket, trunkBranchName: 'trunk' });
+    const codeCommitSourceRepo = new CodeCommitSource(this, 'CodeSource', { name: 'opencbdc-test-code', codeRepoOwner: codeRepoOwner, codeSourceRepo: codeSourceRepo, trunkBranchName: 'trunk' });
+    const codeCommitInfraRepo = new CodeCommitSource(this, 'CodeSource', { name: 'opencbdc-test-code', codeRepoOwner: infraRepoOwner, codeSourceRepo: infraRepo, trunkBranchName: 'trunk' });
     
     const terraformPlan = new codebuild.PipelineProject(
       this,

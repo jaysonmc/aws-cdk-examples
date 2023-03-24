@@ -11,7 +11,7 @@ import { accounts, Beta } from './pipeline';
 
 async function main() {
   // make sure all accounts are setup
-  for (const accountName of ['toolchain', 'beta', 'gamma', 'production'] as const) {
+  for (const accountName of ['toolchain', 'beta'] as const) {
     const account = accounts[accountName];
     accounts[accountName] = await promptAccount(`Select AWS profile for '${accountName}' account`, account?.profile);
   }
@@ -55,12 +55,12 @@ async function promptProfile(message: string, initialProfile?: string): Promise<
   const profiles = Object.keys(config.configFile).sort();
   let initial = initialProfile?profiles.indexOf(initialProfile):undefined;
   if (initial === -1) { initial = undefined; }
-  const profile = await prompts.select({
-    type: 'select',
-    name: 'profile',
-    message,
-    initial,
-    choices: profiles.map(k => ({ title: k, value: k })),
+  const profile = prompts.select({
+      type: 'select',
+      name: 'profile',
+      message,
+      initial,
+      choices: profiles.map(k => ({ title: k, value: k })),
   }) as unknown as string;
 
   return profile;

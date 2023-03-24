@@ -1,0 +1,10 @@
+{
+  "toolchain": {
+    "profile": "toolchain",
+    "accountId": "252265768975"
+  },
+  "beta": {
+    "profile": "beta",
+    "accountId": "252265768975"
+  }
+}
