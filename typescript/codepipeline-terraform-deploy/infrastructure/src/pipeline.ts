@@ -1,4 +1,4 @@
-import { Environment, Stack, StackProps, Stage, Tags } from 'aws-cdk-lib';
+import { CfnOutput, Environment, Stack, StackProps, Stage, Tags } from 'aws-cdk-lib';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
 import { BuildSpec } from 'aws-cdk-lib/aws-codebuild';
 import { Construct } from 'constructs';
@@ -13,6 +13,8 @@ import * as codestar from 'aws-cdk-lib/aws-codestar';
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
 import { TrivyScan } from './trivy-scan';
 import { MavenBuild } from './maven-build';
+import { StringParameter } from 'aws-cdk-lib/aws-ssm';
+import { DeploymentStack } from './deployment';
 
 import {
   ManagedPolicy,
@@ -44,30 +46,30 @@ export class PipelineStack extends Stack {
     const codeSourceRepo = 'opencbdc-tctl'
     const codeRepoOwner = 'mit-dci'
 
-    const sourceBucketName = `s3CDKCodeBucketOpenCBDCDemo-${this.account}`
-    const infraBucketName = `s3CDKInfraBucketOpenCBDCDemo-${this.account}`
+    //const sourceBucketName = `s3CDKCodeBucketOpenCBDCDemo-${this.account}`
+    //const infraBucketName = `s3CDKInfraBucketOpenCBDCDemo-${this.account}`
 
     const adminRole : Role = createAdminRole(this)
 
-    const s3CodeBucket = new Bucket(this, sourceBucketName, {
+    const s3CodeBucket = new Bucket(this, codeSourceOutput.bucketName, {
       encryption: BucketEncryption.S3_MANAGED,
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
     })
     
-    const s3InfraBucket = new Bucket(this, infraBucketName, {
+    const s3InfraBucket = new Bucket(this, infraSourceOutput.bucketName, {
       encryption: BucketEncryption.S3_MANAGED,
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
     })
     
-    new codestar.CfnGitHubRepository(this, 'infraSource', {
+    new codestar.CfnGitHubRepository(this, 'codeSource', {
       repositoryName: codeSourceRepo,
       repositoryOwner: codeRepoOwner,
       code: {
         s3: {
-          bucket: infraBucketName,
-          key: '/code',
+          bucket: infraSourceOutput.bucketName,
+          key: '/',
         },
       }
     })
@@ -77,15 +79,16 @@ export class PipelineStack extends Stack {
       repositoryOwner: infraRepoOwner,
       code: {
         s3: {
-          bucket: sourceBucketName,
-          key: '/code',
+          //bucket: sourceBucketName,
+          bucket: codeSourceOutput.bucketName,
+          key: '/',
         },
       }
     })
 
     const codeCommitSourceRepo = new CodeCommitSource(this, 'CodeSource', { s3Source: s3CodeBucket, trunkBranchName: 'trunk' });
     const codeCommitInfraRepo = new CodeCommitSource(this, 'InfraSource', { s3Source: s3InfraBucket, trunkBranchName: 'trunk' });
-
+    
     const terraformPlan = new codebuild.PipelineProject(
       this,
       "TerraformPlan",
@@ -277,58 +280,46 @@ export class PipelineStack extends Stack {
       crossAccountKeys: true,
       publishAssetsInParallel: false,
     });
-
-    /*
-    pipeline.addStage({
-      stageName: "getSources",
-      actions: [
-        new codepipeline_actions.CodeStarConnectionsSourceAction({
-          actionName: "GetGitHubTerraformSource",
-          output: infraSourceOutput,
-          owner: infraRepoOwner,
-          branch: process.env.branch,
-          repo: infraRepo,
-          connectionArn: `arn:aws:codestar-connections:${process.env.region}:${this.account}:connection/${process.env.codestar_connectionid}`
-        }),
-        new codepipeline_actions.CodeStarConnectionsSourceAction({
-          actionName: "GetGitHubTerraformSource",
-          output: codeSourceOutput,
-          owner: codeRepoOwner,
-          branch: process.env.branch,
-          repo: codeSourceRepo,
-          connectionArn: `arn:aws:codestar-connections:${process.env.region}:${this.account}:connection/${process.env.codestar_connectionid}`
-        })
-      ]
-    })
-    */
     
-    pipeline.addStage({
-      stageName: "getSources",
+    pipeline.pipeline.addStage({
+      stageName: 'PlanTerraform',
       actions: [
-        new codepipeline_actions.CodeCommitSourceAction({
-          actionName: 'Source',
-          repository: codeCommitSourceRepo.repository,
-          output: codeSourceOutput,
-          trigger: codepipeline_actions.CodeCommitTrigger.POLL,
-        }),
-        new codepipeline_actions.CodeCommitSourceAction({
-          actionName: 'Source',
-          repository: codeCommitInfraRepo.repository,
-          output: infraSourceOutput,
-          trigger: codepipeline_actions.CodeCommitTrigger.POLL,
-        }),
+        new codepipeline_actions.CodeBuildAction({
+            actionName: "TerraformPlan",
+            project: terraformPlan,
+            input: codeSourceOutput,
+            outputs: [codeSourceOutput],
+          })
       ]
     })
+    
+    /*
+    new PipelineEnvironment(pipeline, Beta, (deployment, stage) => {
+      pipeline.addStage({
+        stageName: 'Plan',
+        actions: [ 
+          new codepipeline_actions.CodeBuildAction({
+            actionName: "TerraformPlan",
+            project: terraformPlan,
+            input: codeSourceOutput,
+            outputs: [codeSourceOutput],
+          }),
+        ],
+      });
+    });
+    */
 
+    
     new PipelineEnvironment(pipeline, Beta, (deployment, stage) => {
       stage.addPost(
         new SoapUITest('E2E Test', {
-          source: source.codePipelineSource,
+          source: codeCommitInfraRepo.codePipelineSource,
           endpoint: deployment.apiUrl,
           cacheBucket,
         }),
       );
     });
+    
   }
 }
 
@@ -347,6 +338,7 @@ const createAdminRole = (context: Stack): Role => {
 
 type PipelineEnvironmentStageProcessor = (deployment: Deployment, stage: StageDeployment) => void;
 type PipelineEnvironmentWaveProcessor = (wave: Wave) => void;
+
 
 class PipelineEnvironment {
   constructor(
@@ -377,11 +369,25 @@ class PipelineEnvironment {
 }
 
 class Deployment extends Stage {
+  readonly apiUrl: CfnOutput;
 
   constructor(scope: Construct, environmentName: string, env?: Environment) {
     super(scope, `${environmentName}-${env!.region!}`, { env });
     const appName = this.node.tryGetContext('appName');
-    
+    const solutionCode = this.node.tryGetContext('solutionCode');
+    const workloadName = this.node.tryGetContext('workloadName');
+    var appConfigRoleArn;
+    if(workloadName) {
+      appConfigRoleArn = StringParameter.valueFromLookup(scope, `/${workloadName}/dynamic_config_role-${environmentName.toLowerCase()}`)
+    }
+    const stack = new DeploymentStack(this, appName, {
+      appConfigRoleArn,
+      deploymentConfigName: this.node.tryGetContext('deploymentConfigurationName'),
+      natGateways: this.node.tryGetContext('natGateways'),
+      description: `${appName} ${environmentName} deployment (${solutionCode})`,
+    });
+    this.apiUrl = stack.apiUrl;
+
     Tags.of(this).add('Environment', environmentName);
     Tags.of(this).add('Application', appName);
   }
