@@ -15,6 +15,7 @@ import { TrivyScan } from './trivy-scan';
 import { MavenBuild } from './maven-build';
 import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { DeploymentStack } from './deployment';
+import { JMeterTest } from './jmeter-test';
 
 import {
   ManagedPolicy,
@@ -165,6 +166,7 @@ export class PipelineStack extends Stack {
       }
     )
     
+    /*
     const terraformApply = new codebuild.PipelineProject(
       this,
       "TerraformApply",
@@ -209,6 +211,7 @@ export class PipelineStack extends Stack {
         }
       }
     )
+    */
 
     const cacheBucket = new Bucket(this, 'CacheBucket', {
       encryption: BucketEncryption.S3_MANAGED,
@@ -293,6 +296,37 @@ export class PipelineStack extends Stack {
       ]
     })
     
+    pipeline.pipeline.addStage({
+      stageName: "Approval-TF-Plan",
+      actions: [
+        new codepipeline_actions.ManualApprovalAction({actionName: 'Approval-TF-Plan'}),
+      ],
+    })
+    
+    new PipelineEnvironment(pipeline, Beta, (deployment, stage) => {
+      stage.addPost(
+        new JMeterTest('Performance Test', {
+          source: codeCommitInfraRepo.codePipelineSource,
+          endpoint: deployment.apiUrl,
+          threads: 300,
+          duration: 300,
+          throughput: 6000,
+          cacheBucket,
+        }),
+      );
+    })
+
+    new PipelineEnvironment(pipeline, Beta, (deployment, stage) => {
+      stage.addPost(
+        new SoapUITest('E2E Test', {
+          source: codeCommitInfraRepo.codePipelineSource,
+          endpoint: deployment.apiUrl,
+          cacheBucket,
+        }),
+      );
+    });
+    
+    
     /*
     new PipelineEnvironment(pipeline, Beta, (deployment, stage) => {
       pipeline.addStage({
@@ -308,17 +342,6 @@ export class PipelineStack extends Stack {
       });
     });
     */
-
-    
-    new PipelineEnvironment(pipeline, Beta, (deployment, stage) => {
-      stage.addPost(
-        new SoapUITest('E2E Test', {
-          source: codeCommitInfraRepo.codePipelineSource,
-          endpoint: deployment.apiUrl,
-          cacheBucket,
-        }),
-      );
-    });
     
   }
 }
