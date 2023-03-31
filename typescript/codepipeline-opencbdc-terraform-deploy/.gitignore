@@ -3,3 +3,4 @@ cdk.out/
 coverage/
 test-reports/
 /node_modules/
+set-env.sh

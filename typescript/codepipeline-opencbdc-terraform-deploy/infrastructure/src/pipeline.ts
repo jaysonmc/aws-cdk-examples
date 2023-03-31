@@ -2,7 +2,6 @@ import { CfnOutput, Environment, Stack, StackProps, Stage, Tags } from 'aws-cdk-
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
 import { BuildSpec } from 'aws-cdk-lib/aws-codebuild';
 import { Construct } from 'constructs';
-import * as codepipeline_actions from "aws-cdk-lib/aws-codepipeline-actions";
 import * as codepipeline from "aws-cdk-lib/aws-codepipeline";
 import { Account, Accounts } from './accounts';
 import { CodeGuruReviewCheck, CodeGuruReviewFilter } from './codeguru-review-check';
@@ -16,7 +15,7 @@ import { MavenBuild } from './maven-build';
 import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { DeploymentStack } from './deployment';
 import { JMeterTest } from './jmeter-test';
-
+import { TerraformBuild } from './terraform-build';
 import {
   ManagedPolicy,
   Role, 
@@ -43,7 +42,6 @@ export class PipelineStack extends Stack {
     const infraRepo = 'terraform-aws-opencbdc-tctl'
     const infraRepoOwner = process.env.repo_owner ? process.env.repo_owner : ""
     
-    const codeSourceOutput = new codepipeline.Artifact("CodeSrcOutput");
     const codeSourceRepo = 'opencbdc-tctl'
     const codeRepoOwner = 'mit-dci'
 
@@ -73,83 +71,8 @@ export class PipelineStack extends Stack {
 
     const codeCommitSourceRepo = new CodeCommitSource(this, 'CodeSource', { name: `opencbdc-test-code-${this.account}`, codeRepoOwner: codeRepoOwner, codeSourceRepo: codeSourceRepo, branchName: 'trunk' });
     const codeCommitInfraRepo = new CodeCommitSource(this, 'InfraSource', { name: `opencbdc-test-infra-${this.account}`, codeRepoOwner: infraRepoOwner, codeSourceRepo: infraRepo, branchName: 'trunk' });
-    
-    const terraformPlan = new codebuild.PipelineProject(
-      this,
-      "TerraformPlan",
-      {
-        environment: {
-          buildImage: codebuild.LinuxBuildImage.STANDARD_5_0,
-          privileged: false,
-          computeType: codebuild.ComputeType.MEDIUM
-        },
-        buildSpec: codebuild.BuildSpec.fromSourceFilename("plan-buildspec.yml"),
-        role: adminRole,
-        environmentVariables: {
-          environment: {
-            type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
-            value: 'dev'
-          },
-          s3_terraform: {
-            type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
-            value: process.env.s3_terraform
-          },
-          lets_encrypt_email: {
-            type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
-            value: process.env.lets_encrypt_email
-          },
-          base_domain: {
-            type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
-            value: process.env.base_domain
-          },
-          hosted_zone_id: {
-            type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
-            value: process.env.hosted_zone_id
-          },
-          s3_terraform_plan: {
-            type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
-            value: process.env.s3_terraform_plan
-          },
-          s3_artifacts_builds: {
-            type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
-            value: process.env.s3_artifacts_builds
-          },
-          cert_arn: {
-            type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
-            value: process.env.cert_arn
-          },
-          github_access_token: {
-            type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
-            value: process.env.github_access_token
-          },
-          access_token_suffix: {
-            type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
-            value: process.env.github_access_token_suffix
-          },
-          region: {
-            type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
-            value: process.env.region
-          },
-          branch: {
-            type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
-            value: process.env.branch
-          },
-          github_repo_owner: {
-            type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
-            value: infraRepoOwner
-          },
-          github_repo: {
-            type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
-            value: infraRepo
-          },
-          account_id: {
-            type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
-            value: this.account
-          },
-        }
-      }
-    )
-    
+ 
+  
     /*
     const terraformApply = new codebuild.PipelineProject(
       this,
@@ -268,23 +191,85 @@ export class PipelineStack extends Stack {
       publishAssetsInParallel: false,
     });
     
-    pipeline.pipeline.addStage({
-      stageName: 'PlanTerraform',
-      actions: [
-        new codepipeline_actions.CodeBuildAction({
-            actionName: "TerraformPlan",
-            project: terraformPlan,
-            input: codeSourceOutput,
-            outputs: [codeSourceOutput],
-          })
-      ]
-    })
-    
+    /*
     pipeline.pipeline.addStage({
       stageName: "Approval-TF-Plan",
       actions: [
         new codepipeline_actions.ManualApprovalAction({actionName: 'Approval-TF-Plan'}),
       ],
+    })*/
+    
+    // @ts-ignore
+    new PipelineEnvironment(pipeline, Beta, (deployment, stage) => {
+      stage.addPost(
+        new TerraformBuild('Terraform Plan', {
+          source: codeCommitInfraRepo.codePipelineSource,
+          buildSpec: codebuild.BuildSpec.fromSourceFilename("plan-buildspec.yml"),
+          role: adminRole,
+          envVars: {
+              environment: {
+                type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+                value: 'dev'
+              },
+              s3_terraform: {
+                type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+                value: process.env.s3_terraform
+              },
+              lets_encrypt_email: {
+                type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+                value: process.env.lets_encrypt_email
+              },
+              base_domain: {
+                type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+                value: process.env.base_domain
+              },
+              hosted_zone_id: {
+                type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+                value: process.env.hosted_zone_id
+              },
+              s3_terraform_plan: {
+                type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+                value: process.env.s3_terraform_plan
+              },
+              s3_artifacts_builds: {
+                type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+                value: process.env.s3_artifacts_builds
+              },
+              cert_arn: {
+                type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+                value: process.env.cert_arn
+              },
+              github_access_token: {
+                type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+                value: process.env.github_access_token
+              },
+              access_token_suffix: {
+                type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+                value: process.env.github_access_token_suffix
+              },
+              region: {
+                type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+                value: process.env.region
+              },
+              branch: {
+                type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+                value: process.env.branch
+              },
+              github_repo_owner: {
+                type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+                value: infraRepoOwner
+              },
+              github_repo: {
+                type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+                value: infraRepo
+              },
+              account_id: {
+                type: codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+                value: this.account
+              },
+            }
+        }),
+      );
     })
     
     new PipelineEnvironment(pipeline, Beta, (deployment, stage) => {
@@ -309,24 +294,6 @@ export class PipelineStack extends Stack {
         }),
       );
     });
-    
-    
-    /*
-    new PipelineEnvironment(pipeline, Beta, (deployment, stage) => {
-      pipeline.addStage({
-        stageName: 'Plan',
-        actions: [ 
-          new codepipeline_actions.CodeBuildAction({
-            actionName: "TerraformPlan",
-            project: terraformPlan,
-            input: codeSourceOutput,
-            outputs: [codeSourceOutput],
-          }),
-        ],
-      });
-    });
-    */
-    
   }
 }
 
