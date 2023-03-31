@@ -323,6 +323,7 @@ class PipelineEnvironment {
     if (!environment.account?.accountId) {
       throw new Error(`Missing accountId for environment '${environment.name}'. Do you need to update '.accounts.env'?`);
     }
+    // @ts-ignore
     for (const [i, regions] of environment.waves.entries()) {
       const wave = pipeline.addWave(`${environment.name}-${i}`);
       for (const region of regions) {
